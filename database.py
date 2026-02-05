@@ -2,7 +2,6 @@ import json
 import os
 from datetime import datetime
 
-# Simple file-based storage for Streamlit Cloud
 class Database:
     def __init__(self):
         self.data_file = "fact_checks.json"
