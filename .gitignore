@@ -6,3 +6,4 @@ __pycache__/
 local.db
 .streamlit/
 
+streamlit/secrets.toml
