@@ -1,0 +1,7 @@
+streamlit
+instaloader
+openai-whisper
+ffmpeg-python
+python-dotenv
+groq
+requests
