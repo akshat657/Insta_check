@@ -37,6 +37,20 @@ st.markdown("""
         text-align: center;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
+    .error-box {
+        background: #fee;
+        border-left: 4px solid #f44;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 1rem 0;
+    }
+    .tip-box {
+        background: #eff;
+        border-left: 4px solid #4af;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 1rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -53,7 +67,7 @@ def init_components():
         print("="*60 + "\n")
         return agent, checker, db
     except Exception as e:
-        st.error(f"❌ प्रारंभिकरण त्रुटि / Initialization error: {e}")
+        st.error(f"❌ Initialization error: {e}")
         st.stop()
 
 agent, checker, db = init_components()
@@ -69,14 +83,45 @@ if 'corrected_transcript' not in st.session_state:
     st.session_state.corrected_transcript = None
 if 'current_url' not in st.session_state:
     st.session_state.current_url = ""
+if 'show_login' not in st.session_state:
+    st.session_state.show_login = False
 
 # Header
 st.markdown('''
 <div class="main-header">
     <h1>🏥 Instagram Health Claim Fact Checker</h1>
-    <p style="font-size: 1.1rem; margin-top: 0.5rem;">Instagram Reels से स्वास्थ्य गलत सूचनाओं का पर्दाफाश करें | Debunk Health Misinformation</p>
+    <p style="font-size: 1.1rem; margin-top: 0.5rem;">Instagram Reels से स्वास्थ्य गलत सूचनाओं का पर्दाफाश करें</p>
 </div>
 ''', unsafe_allow_html=True)
+
+# Important Notice
+st.info("ℹ️ **महत्वपूर्ण:** यह टूल yt-dlp और Instaloader का उपयोग करता है। यदि त्रुटि आती है तो 10-15 मिनट प्रतीक्षा करें। | **Important:** This tool uses yt-dlp and Instaloader. If you get an error, wait 10-15 minutes.")
+
+# Optional Login Section
+with st.expander("🔐 वैकल्पिक: Instagram Login (Rate Limit से बचने के लिए)", expanded=False):
+    st.warning("⚠️ **गोपनीयता सूचना**: आपका पासवर्ड सहेजा नहीं जाता। केवल session token सहेजा जाता है।")
+    
+    col1, col2, col3 = st.columns([2, 2, 1])
+    
+    with col1:
+        login_username = st.text_input("Instagram Username", key="login_user")
+    
+    with col2:
+        login_password = st.text_input("Password", type="password", key="login_pass")
+    
+    with col3:
+        st.write("")
+        st.write("")
+        if st.button("Login"):
+            if login_username and login_password:
+                with st.spinner("Logging in..."):
+                    success = agent.login_and_save_session(login_username, login_password)
+                    if success:
+                        st.success("✅ Session saved!")
+                    else:
+                        st.error("❌ Login failed")
+            else:
+                st.error("Enter username and password")
 
 # Input Section
 st.markdown('<div class="section-header"><h3>📎 Enter Reel Details</h3></div>', unsafe_allow_html=True)
@@ -108,14 +153,14 @@ with col3:
     )
 
 # Action Buttons
-col1, col2, col3 = st.columns([2, 1, 1])
+col1, col2 = st.columns([3, 1])
 
 with col1:
     analyze_button = st.button("🔍 विश्लेषण शुरू करें / Analyze Reel", type="primary", use_container_width=True)
 
 with col2:
     if st.session_state.analysis:
-        if st.button("🔄 नया विश्लेषण / New Analysis", use_container_width=True):
+        if st.button("🔄 नया / New", use_container_width=True):
             st.session_state.fact_check_id = None
             st.session_state.analysis = None
             st.session_state.transcript = None
@@ -123,30 +168,32 @@ with col2:
             st.session_state.current_url = ""
             st.rerun()
 
-with col3:
-    st.button("ℹ️ मदद / Help", use_container_width=True, disabled=True)
-
-# Info box
+# How it works
 with st.expander("📋 कैसे काम करता है / How It Works"):
     st.markdown("""
-    1. 📎 **Instagram Reel URL** पेस्ट करें
-    2. 🎤 **Video Language** चुनें (वीडियो में कौनसी भाषा है)
-    3. 🌐 **Output Language** चुनें (परिणाम किस भाषा में चाहिए)
-    4. 🔍 **Analyze** बटन दबाएं
-    5. ⏳ प्रतीक्षा करें (30-60 सेकंड)
-    6. ✅ **फैक्ट-चेक रिपोर्ट** देखें
-    7. 💬 वीडियो के बारे में **सवाल पूछें**
+    **🔧 तकनीकी विवरण:**
+    1. **Download Method 1:** yt-dlp (primary) - बेहतर Instagram support
+    2. **Download Method 2:** Instaloader (fallback) - यदि yt-dlp विफल
+    3. **Audio Extraction:** System FFmpeg
+    4. **Transcription:** OpenAI Whisper (base model)
+    5. **Analysis:** Groq Llama 3.3 70B (3 API keys)
     
-    **🔧 Powered by:**
-    - Groq (Llama 3.3 70B) - 3 API Keys
-    - OpenAI Whisper - Transcript extraction
-    - System FFmpeg - Audio processing
+    **⏱️ समय / Time:**
+    - Download: 10-20 सेकंड
+    - Transcription: 10-20 सेकंड
+    - Analysis: 15-30 सेकंड
+    - **कुल:** ~40-70 सेकंड
+    
+    **⚠️ सामान्य त्रुटियाँ:**
+    - **401/403 Error:** Instagram rate limit → 10-15 मिनट प्रतीक्षा करें
+    - **Private Account:** Public reels ही download हो सकते हैं
+    - **Video Not Found:** URL check करें
     """)
 
 # Analysis Process
 if analyze_button:
     if not reel_url:
-        st.error("⚠️ कृपया Instagram Reel URL दर्ज करें / Please enter a URL")
+        st.error("⚠️ कृपया Instagram Reel URL दर्ज करें")
     else:
         st.session_state.current_url = reel_url
         
@@ -159,7 +206,7 @@ if analyze_button:
                 status_box = st.empty()
                 
                 # Step 1: Download
-                status_box.info("📥 रील डाउनलोड हो रही है... / Downloading reel...")
+                status_box.info("📥 रील डाउनलोड हो रही है (yt-dlp → Instaloader)...")
                 progress_bar.progress(15)
                 
                 shortcode, raw_transcript = agent.download_and_extract(
@@ -167,14 +214,14 @@ if analyze_button:
                     video_lang=video_language.lower()
                 )
                 
-                progress_text.text("✅ ट्रांसक्रिप्ट निकाली गई / Transcript extracted")
+                progress_text.text("✅ ट्रांसक्रिप्ट निकाली गई")
                 progress_bar.progress(35)
                 
                 # Check existing
                 existing = db.get_fact_check(shortcode)
                 
                 if existing:
-                    status_box.success("📂 डेटाबेस में मिला! / Found in database!")
+                    status_box.success("📂 डेटाबेस में मिला!")
                     progress_bar.progress(100)
                     
                     st.session_state.transcript = existing['transcript']
@@ -183,7 +230,7 @@ if analyze_button:
                     st.session_state.fact_check_id = existing['id']
                 else:
                     # Step 2: Correct
-                    status_box.info("✍️ चिकित्सा शब्दों को सुधार रहा है... / Correcting medical terms...")
+                    status_box.info("✍️ चिकित्सा शब्दों को सुधार रहा है...")
                     progress_bar.progress(50)
                     
                     corrected_transcript = checker.correct_transcript(
@@ -191,11 +238,11 @@ if analyze_button:
                         output_language.lower()
                     )
                     
-                    progress_text.text("✅ ट्रांसक्रिप्ट सुधारी गई / Transcript corrected")
+                    progress_text.text("✅ ट्रांसक्रिप्ट सुधारी गई")
                     progress_bar.progress(65)
                     
                     # Step 3: Analyze
-                    status_box.info("🔬 स्वास्थ्य दावों का विश्लेषण... / Analyzing claims...")
+                    status_box.info("🔬 स्वास्थ्य दावों का विश्लेषण...")
                     progress_bar.progress(75)
                     
                     analysis = checker.analyze_claims(
@@ -203,12 +250,10 @@ if analyze_button:
                         output_language.lower()
                     )
                     
-                    progress_text.text("✅ विश्लेषण पूर्ण / Analysis complete")
+                    progress_text.text("✅ विश्लेषण पूर्ण")
                     progress_bar.progress(90)
                     
                     # Save
-                    status_box.info("💾 डेटाबेस में सहेज रहे हैं... / Saving to database...")
-                    
                     fact_check_id = db.save_fact_check(
                         reel_url, shortcode, raw_transcript,
                         analysis,
@@ -220,20 +265,50 @@ if analyze_button:
                     st.session_state.analysis = analysis
                     st.session_state.fact_check_id = fact_check_id
                 
-                status_box.success("✅ विश्लेषण पूर्ण! / Analysis complete!")
+                status_box.success("✅ विश्लेषण पूर्ण!")
                 progress_bar.progress(100)
                 
                 time.sleep(1)
                 st.rerun()
                 
             except Exception as e:
-                st.error(f"❌ त्रुटि / Error: {str(e)}")
+                error_msg = str(e)
                 
-                if "403" in str(e) or "Forbidden" in str(e):
-                    st.warning("⚠️ Instagram ने अस्थायी रूप से ब्लॉक किया है। 5-10 मिनट प्रतीक्षा करें।")
-                    st.info("💡 Tip: Private account का reel नहीं डाउनलोड हो सकता")
-                elif "ffmpeg" in str(e).lower():
-                    st.error("FFmpeg नहीं मिला! packages.txt में ffmpeg जोड़ें।")
+                # Custom error handling
+                st.markdown('<div class="error-box">', unsafe_allow_html=True)
+                st.error(f"❌ त्रुटि / Error:")
+                st.code(error_msg)
+                st.markdown('</div>', unsafe_allow_html=True)
+                
+                # Specific error messages
+                if "401" in error_msg or "403" in error_msg or "Unauthorized" in error_msg:
+                    st.markdown('<div class="tip-box">', unsafe_allow_html=True)
+                    st.markdown("""
+                    ### 🔴 Instagram Rate Limit Error
+                    
+                    **समस्या:** Instagram ने अस्थायी रूप से ब्लॉक किया है।
+                    
+                    **समाधान:**
+                    1. ⏰ **10-15 मिनट प्रतीक्षा करें**
+                    2. 🔐 Instagram login करें (ऊपर देखें)
+                    3. 🌐 दूसरे network से try करें
+                    4. 🕐 थोड़ी देर बाद पुनः प्रयास करें
+                    
+                    यह Instagram की सुरक्षा है, app की समस्या नहीं।
+                    """)
+                    st.markdown('</div>', unsafe_allow_html=True)
+                
+                elif "private" in error_msg.lower():
+                    st.warning("⚠️ यह private account का reel है। केवल public reels download हो सकते हैं।")
+                
+                elif "ffmpeg" in error_msg.lower():
+                    st.error("FFmpeg नहीं मिला! Streamlit Cloud settings में packages.txt जोड़ें।")
+                
+                elif "not found" in error_msg.lower() or "404" in error_msg:
+                    st.warning("⚠️ Reel नहीं मिला। URL check करें या reel delete हो गया है।")
+                
+                else:
+                    st.info("💡 Tip: URL check करें, internet connection verify करें, या थोड़ी देर बाद try करें।")
 
 # Results Display
 if st.session_state.analysis:
@@ -248,7 +323,7 @@ if st.session_state.analysis:
     
     with col1:
         st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-        st.metric("समग्र सटीकता / Accuracy", f"{rating:.1f}%")
+        st.metric("सटीकता / Accuracy", f"{rating:.1f}%")
         st.markdown('</div>', unsafe_allow_html=True)
     
     with col2:
@@ -274,11 +349,11 @@ if st.session_state.analysis:
         st.markdown('</div>', unsafe_allow_html=True)
     
     # Summary
-    st.markdown('<div class="section-header"><h3>📋 कार्यकारी सारांश / Executive Summary</h3></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header"><h3>📋 कार्यकारी सारांश / Summary</h3></div>', unsafe_allow_html=True)
     st.info(st.session_state.analysis.get('summary', 'No summary'))
     
     # Claims
-    st.markdown('<div class="section-header"><h3>🔬 विस्तृत दावा विश्लेषण / Detailed Claims</h3></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header"><h3>🔬 विस्तृत दावा विश्लेषण / Claims</h3></div>', unsafe_allow_html=True)
     
     claims = st.session_state.analysis.get('claims', [])
     if claims:
@@ -300,14 +375,14 @@ if st.session_state.analysis:
                 
                 sources = claim.get('sources', [])
                 if sources:
-                    st.markdown("**📚 स्रोत / Sources:**")
+                    st.markdown("**📚 स्रोत:**")
                     for source in sources:
                         st.markdown(f"- {source}")
     
     # Key Issues
     key_issues = st.session_state.analysis.get('key_issues', [])
     if key_issues:
-        st.markdown('<div class="section-header"><h3>⚠️ मुख्य मुद्दे / Key Issues</h3></div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header"><h3>⚠️ मुख्य मुद्दे / Issues</h3></div>', unsafe_allow_html=True)
         for issue in key_issues:
             st.warning(f"• {issue}")
     
@@ -317,16 +392,16 @@ if st.session_state.analysis:
     col1, col2 = st.columns(2)
     
     with col1:
-        with st.expander("मूल ट्रांसक्रिप्ट / Original"):
+        with st.expander("मूल / Original", expanded=False):
             st.text_area("", st.session_state.transcript, height=200, disabled=True, key="orig", label_visibility="collapsed")
     
     with col2:
-        with st.expander("सुधारा हुआ / Corrected"):
+        with st.expander("सुधारा / Corrected", expanded=False):
             st.text_area("", st.session_state.corrected_transcript or st.session_state.transcript, height=200, disabled=True, key="corr", label_visibility="collapsed")
     
     # Chat
     st.markdown("---")
-    st.markdown('<div class="section-header"><h3>💬 इस वीडियो के बारे में प्रश्न पूछें / Ask Questions</h3></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header"><h3>💬 प्रश्न पूछें / Ask Questions</h3></div>', unsafe_allow_html=True)
     
     chat_history = db.get_chat_history(st.session_state.fact_check_id)
     
@@ -338,12 +413,12 @@ if st.session_state.analysis:
             st.write(chat['assistant_response'])
     
     # Chat input
-    if prompt := st.chat_input("कुछ भी पूछें... / Ask anything..."):
+    if prompt := st.chat_input("कुछ भी पूछें..."):
         with st.chat_message("user"):
             st.write(prompt)
         
         with st.chat_message("assistant"):
-            with st.spinner("सोच रहा हूँ... / Thinking..."):
+            with st.spinner("सोच रहा हूँ..."):
                 response = checker.chat_about_video(
                     st.session_state.transcript,
                     st.session_state.corrected_transcript or st.session_state.transcript,
@@ -360,7 +435,7 @@ if st.session_state.analysis:
 st.markdown("---")
 st.markdown("""
 <p style='text-align: center; color: gray; font-size: 0.9rem;'>
-    ❤️ से बनाया गया | Built with ❤️<br>
-    Streamlit + Groq (3 API Keys) + Whisper + System FFmpeg
+    🚀 Method: yt-dlp (primary) + Instaloader (fallback)<br>
+    🔑 Groq (3 API Keys) + Whisper + FFmpeg
 </p>
 """, unsafe_allow_html=True)
