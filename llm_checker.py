@@ -26,7 +26,7 @@ class HealthClaimChecker:
         return Groq(api_key=self.api_keys[self.current_key_index])
     
     def _call_with_fallback(self, messages, temperature=0.3, max_tokens=2000):
-        """Call Groq API with automatic fallback - returns string or raises exception"""
+        """Call Groq API with automatic fallback"""
         attempts = 0
         max_attempts = len(self.api_keys) * 2
         
@@ -40,12 +40,10 @@ class HealthClaimChecker:
                     max_tokens=max_tokens
                 )
                 
-                # Extract content
                 content = response.choices[0].message.content
                 
-                # Ensure we got a valid string
                 if content is None or not isinstance(content, str):
-                    raise ValueError("API returned None or invalid content")
+                    raise ValueError("API returned invalid content")
                 
                 return content
                 
@@ -59,10 +57,9 @@ class HealthClaimChecker:
                     time.sleep(1)
                     continue
                 else:
-                    # For other errors, raise immediately
                     raise e
         
-        raise Exception("All API keys exhausted. Please try again later.")
+        raise Exception("All API keys exhausted")
     
     def correct_transcript(self, raw_transcript, language="hindi"):
         """Correct medical terms in transcript"""
@@ -93,9 +90,8 @@ Return corrected transcript as plain text."""
         try:
             corrected = self._call_with_fallback(messages, temperature=0.2, max_tokens=1500)
             
-            # Validate we got a string
             if not corrected or not isinstance(corrected, str):
-                raise ValueError("Invalid response from API")
+                raise ValueError("Invalid response")
             
             print(f"[✓] Transcript corrected")
             return corrected.strip()
@@ -148,11 +144,9 @@ Cite sources (PubMed, WHO, CDC). Rate 0-100%."""
         try:
             content = self._call_with_fallback(messages, temperature=0.3, max_tokens=2500)
             
-            # Validate we got a string
             if not content or not isinstance(content, str):
-                raise ValueError("Invalid response from API")
+                raise ValueError("Invalid response")
             
-            # Extract JSON
             json_start = content.find('{')
             json_end = content.rfind('}') + 1
             
@@ -162,7 +156,7 @@ Cite sources (PubMed, WHO, CDC). Rate 0-100%."""
                 print(f"[✓] Analysis complete (Rating: {result.get('rating', 0)}%)")
                 return result
             else:
-                raise ValueError("No JSON found in response")
+                raise ValueError("No JSON in response")
                 
         except Exception as e:
             print(f"[!] Analysis failed: {e}")
@@ -205,9 +199,8 @@ Answer questions about this video in {lang_instruction}."""
         try:
             response = self._call_with_fallback(messages, temperature=0.7, max_tokens=1000)
             
-            # Validate we got a string
             if not response or not isinstance(response, str):
-                raise ValueError("Invalid response from API")
+                raise ValueError("Invalid response")
             
             return response
             
