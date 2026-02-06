@@ -23,6 +23,7 @@ class HealthClaimChecker:
         print(f"[✓] Loaded {len(self.api_keys)} Groq API key(s)")
     
     def _get_client(self):
+    # Remove proxies parameter - newer Groq versions don't support it
         return Groq(api_key=self.api_keys[self.current_key_index])
     
     def _call_with_fallback(self, messages, temperature=0.3, max_tokens=2000):
