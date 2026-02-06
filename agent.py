@@ -53,13 +53,11 @@ class ReelAgent:
             
             data = response.json()
             
-            # Extract video URL
             try:
                 video_url = data['contents'][0]['videos'][0]['url']
             except (KeyError, IndexError, TypeError) as e:
                 raise Exception(f"Failed to extract video URL: {e}")
             
-            # Download video file
             video_temp = f"temp_reel_{shortcode}_{int(time.time())}.mp4"
             
             print(f"[*] Downloading video file...")
@@ -77,80 +75,85 @@ class ReelAgent:
     
     def _transcribe_audio_google(self, video_path, language="hindi"):
         """
-        Transcribe audio using Google Speech Recognition
-        Returns Devanagari for Hindi
+        Transcribe audio using Google Speech Recognition API
+        No microphone needed - works with audio files!
         """
         print(f"\n{'='*60}")
         print(f"[*] TRANSCRIPTION START")
         print(f"    Video: {video_path}")
         print(f"    Language: {language}")
-        print(f"    Expected: {'Devanagari (देवनागरी)' if language == 'hindi' else 'English'}")
         print(f"{'='*60}")
         
-        # Language codes
+        # Language codes for Google Speech API
         lang_codes = {
             "hindi": "hi-IN",
             "english": "en-US"
         }
         
         lang_code = lang_codes.get(language.lower(), "hi-IN")
-        print(f"[*] Using Google API language code: {lang_code}")
         
         full_transcript = []
         chunk_files = []
         
         try:
-            # Load audio
+            # Load audio with pydub
             print(f"[*] Loading audio...")
             sound = AudioSegment.from_file(video_path)
             
             duration_seconds = len(sound) / 1000
             print(f"    Duration: {duration_seconds:.1f}s")
             
-            # Split into chunks
+            # Split into 10-second chunks
             chunk_length_ms = 10000
             chunks = make_chunks(sound, chunk_length_ms)
             
             print(f"    Total chunks: {len(chunks)}")
-            print(f"\n[*] Processing chunks...\n")
+            print(f"\n[*] Transcribing...\n")
             
             # Initialize recognizer
-            r = sr.Recognizer()
+            recognizer = sr.Recognizer()
             
             # Process each chunk
             for i, chunk in enumerate(chunks):
                 chunk_name = f"chunk_{i}_{int(time.time())}.wav"
                 chunk_files.append(chunk_name)
                 
-                # Export chunk
+                # Export chunk as WAV
                 chunk.export(chunk_name, format="wav")
                 
                 try:
+                    # Load audio file
                     with sr.AudioFile(chunk_name) as source:
-                        r.adjust_for_ambient_noise(source, duration=0.5)
-                        audio_data = r.record(source)
+                        # Adjust for ambient noise (duration must be int)
+                        recognizer.adjust_for_ambient_noise(source, duration=1)
+                        # Record the audio
+                        audio_data = recognizer.record(source)
                     
-                    # Transcribe with specific language
-                    text = r.recognize_google(audio_data, language=lang_code)
+                    # Recognize speech using Google Speech Recognition API
+                    text = recognizer.recognize_google(audio_data, language=lang_code)
                     
-                    if text.strip():
+                    if text and text.strip():
                         full_transcript.append(text)
                         
-                        # Preview
                         preview = text[:60] + "..." if len(text) > 60 else text
                         print(f"    [{i+1}/{len(chunks)}] ✓ {len(text)} chars")
                         print(f"         {preview}")
                     
                 except sr.UnknownValueError:
-                    print(f"    [{i+1}/{len(chunks)}] - Silent")
+                    # Google Speech Recognition could not understand audio
+                    print(f"    [{i+1}/{len(chunks)}] - Silent/unclear")
                 
                 except sr.RequestError as e:
+                    # Could not request results from Google Speech Recognition
                     print(f"    [{i+1}/{len(chunks)}] ! API Error: {e}")
+                
+                except Exception as e:
+                    print(f"    [{i+1}/{len(chunks)}] ! Error: {e}")
             
-            # Combine
+            # Combine all transcripts
             final_transcript = " ".join(full_transcript)
             
-            # Verification
+            # Results
             print(f"\n{'='*60}")
             print(f"[✓] TRANSCRIPTION COMPLETE")
             print(f"{'='*60}")
@@ -158,27 +161,30 @@ class ReelAgent:
             print(f"Successful: {len(full_transcript)}")
             print(f"Total length: {len(final_transcript)} characters")
             
-            # Script check for Hindi
+            # Script verification for Hindi
             if language == "hindi" and final_transcript:
                 devanagari_count = sum(1 for c in final_transcript if '\u0900' <= c <= '\u097F')
                 arabic_count = sum(1 for c in final_transcript if '\u0600' <= c <= '\u06FF')
                 
                 print(f"\nScript Analysis:")
-                print(f"  Devanagari chars: {devanagari_count}")
-                print(f"  Arabic/Urdu chars: {arabic_count}")
+                print(f"  Devanagari: {devanagari_count}")
+                print(f"  Arabic/Urdu: {arabic_count}")
                 
                 if arabic_count > devanagari_count:
-                    print(f"  ⚠️  WARNING: Urdu script detected!")
+                    print(f"  ⚠️  WARNING: Urdu script!")
                 else:
-                    print(f"  ✓  Correct script (Devanagari)")
+                    print(f"  ✓  Correct (Devanagari)")
             
             print(f"{'='*60}")
             
-            # Display full transcript
+            # Preview
             print(f"\n{'='*60}")
-            print(f"[FINAL TRANSCRIPT - TO BE SAVED]")
+            print(f"[TRANSCRIPT PREVIEW]")
             print(f"{'='*60}")
-            print(final_transcript[:500] + ("..." if len(final_transcript) > 500 else ""))
+            preview_length = min(500, len(final_transcript))
+            print(final_transcript[:preview_length])
+            if len(final_transcript) > 500:
+                print("...")
             print(f"{'='*60}\n")
             
             return final_transcript
@@ -187,17 +193,25 @@ class ReelAgent:
             raise Exception(f"Transcription failed: {e}")
         
         finally:
-            # Cleanup
+            # Cleanup chunk files
+            print(f"[*] Cleaning up {len(chunk_files)} chunk files...")
             for chunk_file in chunk_files:
                 if os.path.exists(chunk_file):
                     try:
                         os.remove(chunk_file)
-                    except:
-                        pass
+                    except Exception as cleanup_error:
+                        print(f"    ! Could not remove {chunk_file}: {cleanup_error}")
     
     def download_and_extract(self, url, video_lang="hindi"):
         """
-        Download and transcribe
+        Main method: Download Instagram Reel and extract transcript
+        
+        Args:
+            url: Instagram Reel URL
+            video_lang: Language spoken in video ("hindi" or "english")
+        
+        Returns:
+            tuple: (shortcode, transcript)
         """
         shortcode = self._extract_shortcode(url)
         video_path = None
@@ -207,24 +221,33 @@ class ReelAgent:
             print(f"[NEW ANALYSIS REQUEST]")
             print(f"Shortcode: {shortcode}")
             print(f"Language: {video_lang}")
+            print(f"Method: RapidAPI + Google Speech Recognition")
             print(f"{'='*60}\n")
             
-            # Download
+            # Step 1: Download video via RapidAPI
             video_path = self._download_video_rapidapi(shortcode)
             
-            # Transcribe
+            # Step 2: Transcribe using Google Speech Recognition
             transcript = self._transcribe_audio_google(video_path, video_lang)
             
+            # Validation
             if not transcript or len(transcript.strip()) == 0:
-                raise Exception("No speech detected in video")
+                raise Exception(
+                    "No speech detected in video.\n\n"
+                    "Possible causes:\n"
+                    "• Video has no speech (music-only/silent)\n"
+                    "• Audio quality is very poor\n"
+                    "• Wrong language selected\n"
+                    "• Background noise is too loud"
+                )
             
-            # Verify before returning
-            print(f"\n[*] Returning transcript to app...")
+            # Success message
+            print(f"\n[✓] SUCCESS")
             print(f"    Shortcode: {shortcode}")
-            print(f"    Length: {len(transcript)} chars")
+            print(f"    Transcript length: {len(transcript)} characters")
             print(f"    First 100 chars: {transcript[:100]}...\n")
             
-            # Cleanup
+            # Cleanup video file
             if video_path and os.path.exists(video_path):
                 os.remove(video_path)
                 print(f"[✓] Cleanup complete\n")
@@ -232,9 +255,13 @@ class ReelAgent:
             return shortcode, transcript
             
         except Exception as e:
+            # Cleanup on error
             if video_path and os.path.exists(video_path):
                 try:
                     os.remove(video_path)
+                    print(f"[*] Cleaned up video file")
                 except:
                     pass
+            
+            # Re-raise the error
             raise e
