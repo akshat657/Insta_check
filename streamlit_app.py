@@ -34,6 +34,13 @@ st.markdown("""
         border-radius: 10px;
         text-align: center;
     }
+    .debug-box {
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 1rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -51,7 +58,6 @@ def init_components():
         return agent, checker, db
     except Exception as e:
         st.error(f"❌ Initialization error: {e}")
-        st.info("💡 Make sure to add API keys in Streamlit Secrets:\n- RAPIDAPI_KEY\n- GROQ_API_KEY_1/2/3")
         st.stop()
 
 agent, checker, db = init_components()
@@ -72,12 +78,9 @@ if 'current_url' not in st.session_state:
 st.markdown('''
 <div class="main-header">
     <h1>🏥 Instagram Health Claim Fact Checker</h1>
-    <p>RapidAPI + Google Speech Recognition + Groq AI</p>
+    <p>RapidAPI + Google Speech (Devanagari) + Groq AI</p>
 </div>
 ''', unsafe_allow_html=True)
-
-# Info
-st.info("ℹ️ **How it works:** RapidAPI downloads video → Google Speech recognizes audio → Groq AI analyzes health claims")
 
 # Input
 st.markdown('<div class="section-header"><h3>📎 Enter Reel Details</h3></div>', unsafe_allow_html=True)
@@ -96,30 +99,50 @@ with col2:
     video_language = st.selectbox(
         "Video Language",
         ["Hindi", "English"],
-        index=0,
-        help="Language spoken in video"
+        index=0
     )
 
 with col3:
     output_language = st.selectbox(
         "Output Language",
         ["Hindi", "English"],
-        index=0,
-        help="Analysis language"
+        index=0
     )
 
 # Buttons
-col1, col2 = st.columns([3, 1])
+col1, col2, col3 = st.columns([2, 1, 1])
 
 with col1:
     analyze_button = st.button("🔍 Analyze Reel", type="primary", use_container_width=True)
 
 with col2:
+    force_refresh = st.button("🔄 Force Refresh", use_container_width=True, help="Clear cache and re-analyze")
+
+with col3:
     if st.session_state.analysis:
-        if st.button("🔄 New Analysis", use_container_width=True):
+        if st.button("🆕 New", use_container_width=True):
             for key in ['fact_check_id', 'analysis', 'transcript', 'corrected_transcript', 'current_url']:
                 st.session_state[key] = None if key != 'current_url' else ""
             st.rerun()
+
+# Force refresh logic
+if force_refresh and reel_url:
+    try:
+        from agent import ReelAgent
+        temp_agent = ReelAgent()
+        shortcode = temp_agent._extract_shortcode(reel_url)
+        
+        # Clear from database
+        db.clear_cache(shortcode)
+        
+        # Clear session state
+        for key in ['fact_check_id', 'analysis', 'transcript', 'corrected_transcript']:
+            st.session_state[key] = None
+        
+        st.success(f"✅ Cache cleared for {shortcode}. Click 'Analyze Reel' to re-process.")
+        
+    except Exception as e:
+        st.error(f"Error: {e}")
 
 # Process
 if analyze_button:
@@ -133,7 +156,7 @@ if analyze_button:
             progress_bar = st.progress(0)
             status_box = st.empty()
             
-            # Step 1: Download
+            # Step 1: Download & Transcribe
             status_box.info("📥 Downloading via RapidAPI...")
             progress_bar.progress(15)
             
@@ -142,14 +165,30 @@ if analyze_button:
                 video_lang=video_language.lower()
             )
             
+            # Debug info
+            st.markdown('<div class="debug-box">', unsafe_allow_html=True)
+            devanagari_start = '\u0900'
+            devanagari_end = '\u097F'
+            is_devanagari = any(devanagari_start <= c <= devanagari_end for c in raw_transcript[:100])
+            script_type = 'Devanagari ✓' if is_devanagari else 'Other'
+            st.markdown(f"""
+            **🔍 Debug Info:**
+            - Shortcode: `{shortcode}`
+            - Transcript length: `{len(raw_transcript)}` characters
+            - First 100 chars: `{raw_transcript[:100]}...`
+            - Script: {script_type}
+            """)
+            st.markdown('</div>', unsafe_allow_html=True)
+            
             progress_text.text("✅ Transcript extracted")
             progress_bar.progress(35)
             
-            # Check existing
+            # Check existing (but show warning if found)
             existing = db.get_fact_check(shortcode)
             
             if existing:
-                status_box.success("📂 Found in database")
+                # Show that we found cached data
+                st.warning(f"📂 Found cached analysis for {shortcode}. Using cached data. Click 'Force Refresh' for fresh analysis.")
                 progress_bar.progress(100)
                 
                 st.session_state.transcript = existing['transcript']
@@ -157,7 +196,7 @@ if analyze_button:
                 st.session_state.analysis = existing['analysis']
                 st.session_state.fact_check_id = existing['id']
             else:
-                # Step 2: Correct
+                # Fresh analysis
                 status_box.info("✍️ Correcting medical terms...")
                 progress_bar.progress(50)
                 
@@ -169,7 +208,6 @@ if analyze_button:
                 progress_text.text("✅ Transcript corrected")
                 progress_bar.progress(65)
                 
-                # Step 3: Analyze
                 status_box.info("🔬 Analyzing health claims...")
                 progress_bar.progress(75)
                 
@@ -181,7 +219,7 @@ if analyze_button:
                 progress_text.text("✅ Analysis complete")
                 progress_bar.progress(90)
                 
-                # Save
+                # Save - this should save the NEW transcript
                 fact_check_id = db.save_fact_check(
                     reel_url, shortcode, raw_transcript,
                     analysis,
@@ -201,17 +239,18 @@ if analyze_button:
             
         except Exception as e:
             st.error(f"❌ Error: {str(e)}")
-            
-            if "RAPIDAPI_KEY" in str(e):
-                st.warning("🔑 Add RAPIDAPI_KEY in Streamlit Secrets")
-            elif "rate_limit" in str(e).lower():
-                st.warning("⚠️ API rate limit reached. Wait and try again.")
-            elif "No speech detected" in str(e):
-                st.warning("🔇 No speech found in video. Check if:\n- Video has audio\n- Audio is clear\n- Language is correct")
 
-# Results
+# Results (same as before...)
 if st.session_state.analysis:
     st.markdown("---")
+    
+    # Transcript verification
+    if st.session_state.transcript:
+        devanagari_count = sum(1 for c in st.session_state.transcript if '\u0900' <= c <= '\u097F')
+        arabic_count = sum(1 for c in st.session_state.transcript if '\u0600' <= c <= '\u06FF')
+        
+        if arabic_count > devanagari_count:
+            st.error("⚠️ WARNING: Transcript is in Urdu script! Click 'Force Refresh' to re-analyze.")
     
     st.markdown('<div class="section-header"><h3>📊 Results</h3></div>', unsafe_allow_html=True)
     
@@ -247,7 +286,7 @@ if st.session_state.analysis:
     st.info(st.session_state.analysis.get('summary', 'N/A'))
     
     # Claims
-    st.markdown('<div class="section-header"><h3>🔬 Claims Analysis</h3></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header"><h3>🔬 Claims</h3></div>', unsafe_allow_html=True)
     
     claims = st.session_state.analysis.get('claims', [])
     if claims:
@@ -286,12 +325,12 @@ if st.session_state.analysis:
     col1, col2 = st.columns(2)
     
     with col1:
-        with st.expander("Original Transcript"):
-            st.text_area("", st.session_state.transcript, height=150, disabled=True, key="orig", label_visibility="collapsed")
+        with st.expander("Original Transcript (From Google Speech)"):
+            st.text_area("", st.session_state.transcript, height=200, disabled=True, key="orig", label_visibility="collapsed")
     
     with col2:
-        with st.expander("Corrected Transcript"):
-            st.text_area("", st.session_state.corrected_transcript or st.session_state.transcript, height=150, disabled=True, key="corr", label_visibility="collapsed")
+        with st.expander("Corrected Transcript (By Groq AI)"):
+            st.text_area("", st.session_state.corrected_transcript or st.session_state.transcript, height=200, disabled=True, key="corr", label_visibility="collapsed")
     
     # Chat
     st.markdown("---")
@@ -305,7 +344,7 @@ if st.session_state.analysis:
         with st.chat_message("assistant"):
             st.write(chat['assistant_response'])
     
-    if prompt := st.chat_input("Ask anything about this video..."):
+    if prompt := st.chat_input("Ask anything..."):
         with st.chat_message("user"):
             st.write(prompt)
         
@@ -327,6 +366,6 @@ if st.session_state.analysis:
 st.markdown("---")
 st.markdown("""
 <p style='text-align: center; color: gray;'>
-    🚀 RapidAPI + Google Speech Recognition + Groq (3 Keys)
+    🚀 RapidAPI + Google Speech (Devanagari) + Groq (3 Keys)
 </p>
 """, unsafe_allow_html=True)
